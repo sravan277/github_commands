@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Pipeline Visualization</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --accent-ingest: #10b981; /* Green for ingestion */
+            --accent-retrieve: #3b82f6; /* Blue for retrieval */
+            --accent-gen: #8b5cf6; /* Purple for generation */
+            --line-color: #475569;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header */
+        header {
+            padding: 15px 30px;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+            background: var(--bg-color);
+        }
+
+        h1 { margin: 0; font-size: 1.2rem; font-weight: 600; }
+        .badge { font-size: 0.8rem; background: #334155; padding: 4px 8px; border-radius: 4px; color: var(--text-muted); }
+
+        /* Main Layout */
+        .container {
+            flex: 1;
+            position: relative;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+            grid-template-rows: 1fr 1fr 1fr;
+            gap: 20px;
+            padding: 40px;
+        }
+
+        /* SVG Layer for Lines */
+        #connections {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Nodes */
+        .node {
+            background: var(--card-bg);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            z-index: 2;
+            transition: transform 0.3s, box-shadow 0.3s;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            position: relative;
+            min-height: 80px;
+        }
+
+        .node:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            border-color: var(--text-muted);
+        }
+
+        .node-icon { font-size: 24px; margin-bottom: 8px; }
+        .node-title { font-weight: bold; font-size: 0.9rem; }
+        .node-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+
+        /* Specific Node Positioning */
+        #docs { grid-column: 1; grid-row: 1; border-left: 4px solid var(--accent-ingest); }
+        #chunks { grid-column: 2; grid-row: 1; border-left: 4px solid var(--accent-ingest); }
+        #embed-model { grid-column: 3; grid-row: 2; border-left: 4px solid #eab308; }
+        #vectordb { grid-column: 3; grid-row: 1; border-left: 4px solid var(--accent-ingest); height: 120px; }
+        
+        #user-query { grid-column: 1; grid-row: 3; border-left: 4px solid var(--accent-retrieve); }
+        #retrieval { grid-column: 3; grid-row: 3; border-left: 4px solid var(--accent-retrieve); }
+        #prompt-aug { grid-column: 4; grid-row: 3; border-left: 4px solid var(--accent-gen); }
+        #llm { grid-column: 5; grid-row: 3; border-left: 4px solid var(--accent-gen); }
+        #response { grid-column: 5; grid-row: 2; border-left: 4px solid var(--accent-gen); }
+
+        /* Controls & Log */
+        .controls {
+            padding: 20px;
+            border-top: 1px solid #334155;
+            background: var(--bg-color);
+            display: flex;
+            gap: 15px;
+            z-index: 10;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.9; }
+
+        .btn-ingest { background-color: var(--accent-ingest); color: #000; }
+        .btn-query { background-color: var(--accent-retrieve); color: #fff; }
+
+        .log-panel {
+            flex: 1;
+            background: #000;
+            border-radius: 6px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.85rem;
+            padding: 10px;
+            color: #0f0;
+            overflow-y: auto;
+            height: 60px;
+            border: 1px solid #333;
+        }
+
+        /* Animation Particles */
+        .particle {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 5;
+            display: none;
+            box-shadow: 0 0 10px currentColor;
+        }
+
+        /* Responsive adjustment */
+        @media (max-width: 900px) {
+            .container {
+                display: flex;
+                flex-direction: column;
+                overflow-y: auto;
+            }
+            #connections { display: none; } /* Hide complex lines on mobile */
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>Retrieval-Augmented Generation (RAG)</h1>
+    </div>
+    <div class="badge">Architecture Visualization</div>
+</header>
+
+<div class="container">
+    <!-- SVG Layer -->
+    <svg id="connections">
+        <!-- Paths will be drawn by JS -->
+    </svg>
+
+    <!-- Nodes -->
+    <div id="docs" class="node">
+        <div class="node-icon">📄</div>
+        <div class="node-title">Knowledge Base</div>
+        <div class="node-desc">PDFs, HTML, Txt</div>
+    </div>
+
+    <div id="chunks" class="node">
+        <div class="node-icon">✂️</div>
+        <div class="node-title">Text Splitter</div>
+        <div class="node-desc">Chunks & Cleaning</div>
+    </div>
+
+    <div id="vectordb" class="node">
+        <div class="node-icon">🗄️</div>
+        <div class="node-title">Vector Database</div>
+        <div class="node-desc">Store Embeddings</div>
+    </div>
+
+    <div id="embed-model" class="node">
+        <div class="node-icon">🧠</div>
+        <div class="node-title">Embedding Model</div>
+        <div class="node-desc">Text to Vector</div>
+    </div>
+
+    <div id="user-query" class="node">
+        <div class="node-icon">👤</div>
+        <div class="node-title">User Query</div>
+        <div class="node-desc">"How does X work?"</div>
+    </div>
+
+    <div id="retrieval" class="node">
+        <div class="node-icon">🔍</div>
+        <div class="node-title">Semantic Search</div>
+        <div class="node-desc">Find Top-K Similarity</div>
+    </div>
+
+    <div id="prompt-aug" class="node">
+        <div class="node-icon">📝</div>
+        <div class="node-title">Prompt Augmentation</div>
+        <div class="node-desc">Query + Context</div>
+    </div>
+
+    <div id="llm" class="node">
+        <div class="node-icon">🤖</div>
+        <div class="node-title">LLM</div>
+        <div class="node-desc">GPT / Llama / Claude</div>
+    </div>
+
+    <div id="response" class="node">
+        <div class="node-icon">💬</div>
+        <div class="node-title">Final Response</div>
+        <div class="node-desc">Answer to User</div>
+    </div>
+</div>
+
+<div class="controls">
+    <button class="btn-ingest" onclick="runIngestionFlow()">▶ Run Ingestion</button>
+    <button class="btn-query" onclick="runQueryFlow()">▶ Run Query</button>
+    <div class="log-panel" id="logger">System Ready... Waiting for input.</div>
+</div>
+
+<!-- Particle element for animation -->
+<div id="particle" class="particle"></div>
+
+<script>
+    // --- Configuration ---
+    const colors = {
+        ingest: '#10b981',
+        retrieve: '#3b82f6',
+        gen: '#8b5cf6',
+        embed: '#eab308'
+    };
+
+    const logger = document.getElementById('logger');
+    const particle = document.getElementById('particle');
+    const svgCanvas = document.getElementById('connections');
+
+    // --- Line Drawing Logic ---
+    function connect(id1, id2, color = '#475569', dash = false) {
+        const el1 = document.getElementById(id1);
+        const el2 = document.getElementById(id2);
+        
+        // Get positions relative to container
+        const rect1 = el1.getBoundingClientRect();
+        const rect2 = el2.getBoundingClientRect();
+        const container = document.querySelector('.container').getBoundingClientRect();
+
+        const x1 = rect1.left + rect1.width / 2 - container.left;
+        const y1 = rect1.top + rect1.height / 2 - container.top;
+        const x2 = rect2.left + rect2.width / 2 - container.left;
+        const y2 = rect2.top + rect2.height / 2 - container.top;
+
+        // Create Path
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        
+        // Curve logic (simple Bezier)
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const tension = 0.5;
+        
+        // Path definition
+        let d = `M ${x1} ${y1} C ${x1 + dx * tension} ${y1}, ${x2 - dx * tension} ${y2}, ${x2} ${y2}`;
+        
+        // Adjust for vertical overlapping flows
+        if(Math.abs(dx) < 10 && Math.abs(dy) > 0) {
+             d = `M ${x1} ${y1} L ${x2} ${y2}`;
+        }
+
+        path.setAttribute("d", d);
+        path.setAttribute("stroke", color);
+        path.setAttribute("stroke-width", "2");
+        path.setAttribute("fill", "none");
+        if (dash) path.setAttribute("stroke-dasharray", "5,5");
+        
+        path.id = `line-${id1}-${id2}`;
+        svgCanvas.appendChild(path);
+    }
+
+    function drawLines() {
+        svgCanvas.innerHTML = ''; // Clear existing
+        // Ingestion Flow
+        connect('docs', 'chunks', colors.ingest);
+        connect('chunks', 'embed-model', colors.ingest);
+        connect('embed-model', 'vectordb', colors.ingest);
+
+        // Query Flow
+        connect('user-query', 'embed-model', colors.retrieve);
+        connect('embed-model', 'retrieval', colors.retrieve);
+        
+        // Interaction
+        connect('vectordb', 'retrieval', '#ffffff', true); // Conceptual link
+        
+        // Generation Flow
+        connect('retrieval', 'prompt-aug', colors.retrieve);
+        connect('prompt-aug', 'llm', colors.gen);
+        connect('llm', 'response', colors.gen);
+    }
+
+    // Redraw on resize
+    window.addEventListener('resize', drawLines);
+    // Initial Draw
+    setTimeout(drawLines, 100);
+
+    // --- Animation Logic ---
+    
+    function log(msg) {
+        const span = document.createElement('div');
+        span.textContent = `> ${msg}`;
+        logger.appendChild(span);
+        logger.scrollTop = logger.scrollHeight;
+    }
+
+    function highlightNode(id, active = true) {
+        const el = document.getElementById(id);
+        if (active) {
+            el.style.borderColor = '#fff';
+            el.style.boxShadow = '0 0 15px rgba(255,255,255,0.3)';
+        } else {
+            el.style.borderColor = '#334155';
+            el.style.boxShadow = 'none';
+        }
+    }
+
+    async function moveParticle(pathIds, color) {
+        particle.style.display = 'block';
+        particle.style.backgroundColor = color;
+        particle.style.color = color; // for box shadow
+
+        for (let i = 0; i < pathIds.length - 1; i++) {
+            const startId = pathIds[i];
+            const endId = pathIds[i+1];
+
+            highlightNode(startId, true);
+
+            // Get coordinates
+            const el1 = document.getElementById(startId);
+            const el2 = document.getElementById(endId);
+            const container = document.querySelector('.container').getBoundingClientRect();
+            
+            const r1 = el1.getBoundingClientRect();
+            const r2 = el2.getBoundingClientRect();
+
+            const startX = r1.left + r1.width/2 - container.left;
+            const startY = r1.top + r1.height/2 - container.top;
+            const endX = r2.left + r2.width/2 - container.left;
+            const endY = r2.top + r2.height/2 - container.top;
+
+            // Animate
+            await new Promise(resolve => {
+                const duration = 800; // ms
+                const startTime = performance.now();
+
+                function step(currentTime) {
+                    const elapsed = currentTime - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+
+                    const currentX = startX + (endX - startX) * progress;
+                    const currentY = startY + (endY - startY) * progress;
+
+                    particle.style.left = `${currentX}px`;
+                    particle.style.top = `${currentY}px`;
+
+                    if (progress < 1) {
+                        requestAnimationFrame(step);
+                    } else {
+                        highlightNode(startId, false);
+                        resolve();
+                    }
+                }
+                requestAnimationFrame(step);
+            });
+        }
+        highlightNode(pathIds[pathIds.length -1], true);
+        setTimeout(() => highlightNode(pathIds[pathIds.length -1], false), 500);
+        particle.style.display = 'none';
+    }
+
+    // --- Flows ---
+
+    async function runIngestionFlow() {
+        logger.innerHTML = '';
+        log("Starting Ingestion Pipeline...");
+        
+        log("Loading Source Documents...");
+        await moveParticle(['docs', 'chunks'], colors.ingest);
+        
+        log("Splitting text into manageable chunks...");
+        await moveParticle(['chunks', 'embed-model'], colors.ingest);
+        
+        log("Creating Vector Embeddings (e.g., OpenAI ada-002)...");
+        await moveParticle(['embed-model', 'vectordb'], colors.ingest);
+        
+        log("Upserting vectors to Database (Pinecone/Milvus)...");
+        log("Ingestion Complete. Knowledge Base Updated.");
+    }
+
+    async function runQueryFlow() {
+        logger.innerHTML = '';
+        log("Processing User Query...");
+
+        log("User asks a question...");
+        await moveParticle(['user-query', 'embed-model'], colors.retrieve);
+        
+        log("Converting query to Vector...");
+        await moveParticle(['embed-model', 'retrieval'], colors.retrieve);
+        
+        log("Searching Vector DB for similar chunks (KNN/Cosine Similarity)...");
+        // Visualize DB Lookup
+        highlightNode('vectordb', true);
+        await new Promise(r => setTimeout(r, 500));
+        highlightNode('vectordb', false);
+
+        await moveParticle(['retrieval', 'prompt-aug'], colors.retrieve);
+        
+        log("Retrieved Context. Constructing Prompt...");
+        log("Prompt = System Instr + Context Chunks + User Query");
+        await moveParticle(['prompt-aug', 'llm'], colors.gen);
+        
+        log("Sending payload to LLM...");
+        await moveParticle(['llm', 'response'], colors.gen);
+        
+        log("Response generated and streaming to user.");
+    }
+
+</script>
+
+</body>
+</html>
