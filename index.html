@@ -436,7 +436,6 @@
         log("Prompt = System Instr + Context Chunks + User Query");
         await moveParticle(['prompt-aug', 'llm'], colors.gen);
         
-        log("Sending payload to LLM...");
         await moveParticle(['llm', 'response'], colors.gen);
         
     }
